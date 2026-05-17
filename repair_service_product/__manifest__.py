@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 {
     'name': 'Repair Orders for Service Products',
     'version': '17.0.1.0.0',
