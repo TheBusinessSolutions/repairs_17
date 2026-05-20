@@ -1,5 +1,9 @@
+import logging
+
 from odoo import api, fields, models
 from odoo.tools.float_utils import float_compare, float_is_zero
+
+_logger = logging.getLogger(__name__)
 
 
 class StockMove(models.Model):
@@ -8,7 +12,6 @@ class StockMove(models.Model):
     repair_invoiceable = fields.Boolean(
         string="Invoiceable",
         default=True,
-        help="Only invoiceable products will be included in the quotation.",
     )
 
     repair_create_sync = fields.Boolean(
@@ -72,32 +75,29 @@ class StockMove(models.Model):
             and m.repair_id.sale_order_id
         )
 
-        if not moves:
-            return True
+        _logger.warning("==== REPAIR SYNC MOVES ====")
 
-        return super(StockMove, moves)._create_repair_sale_order_line()
-
-    def _update_repair_sale_order_line(self):
-        moves = self.filtered("repair_update_sync")
-
-        if not moves:
-            return True
-
-        super(StockMove, moves)._update_repair_sale_order_line()
-
-        unlink_moves = moves.filtered(
-            lambda m:
-            m.sale_line_id
-            and (
-                not m.repair_invoiceable
-                or float_is_zero(
-                    m.product_uom_qty,
-                    precision_rounding=m.product_uom.rounding,
-                )
+        for move in moves:
+            _logger.warning(
+                "MOVE %s | product=%s | qty=%s | repair=%s | so=%s",
+                move.id,
+                move.product_id.display_name,
+                move.product_uom_qty,
+                move.repair_id.name,
+                move.repair_id.sale_order_id.name,
             )
-        )
 
-        if unlink_moves:
-            unlink_moves._clean_repair_sale_order_line()
+        if not moves:
+            _logger.warning("NO MOVES TO SYNC")
+            return True
 
-        return True
+        result = super()._create_repair_sale_order_line()
+
+        for move in moves:
+            _logger.warning(
+                "AFTER SYNC move=%s sale_line=%s",
+                move.id,
+                move.sale_line_id.id,
+            )
+
+        return result
