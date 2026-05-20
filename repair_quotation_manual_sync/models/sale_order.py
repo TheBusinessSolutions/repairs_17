@@ -9,7 +9,10 @@ class SaleOrder(models.Model):
     )
 
     def _get_states_for_sync(self):
-        return ["draft", "sent"]
+        """
+        Allow synchronization also on confirmed Sale Orders.
+        """
+        return ["draft", "sent", "sale"]
 
     @api.depends(
         "repair_order_ids.move_ids.repair_create_sync",
@@ -18,9 +21,12 @@ class SaleOrder(models.Model):
     def _compute_needs_repair_sync(self):
         for order in self:
             moves = order.repair_order_ids.mapped("move_ids")
+
             order.needs_repair_sync = any(
                 moves.filtered(
-                    lambda m: m.repair_create_sync or m.repair_update_sync
+                    lambda m:
+                    m.repair_create_sync
+                    or m.repair_update_sync
                 )
             )
 
@@ -34,6 +40,7 @@ class SaleOrder(models.Model):
             create_moves = moves.filtered(
                 lambda m: m.repair_create_sync
             )
+
             if create_moves:
                 create_moves.with_context(
                     repair_lines_manual_sync=True
@@ -42,6 +49,7 @@ class SaleOrder(models.Model):
             update_moves = moves.filtered(
                 lambda m: m.repair_update_sync
             )
+
             if update_moves:
                 update_moves.with_context(
                     repair_lines_manual_sync=True

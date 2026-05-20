@@ -1,9 +1,5 @@
-import logging
-
 from odoo import api, fields, models
 from odoo.tools.float_utils import float_compare, float_is_zero
-
-_logger = logging.getLogger(__name__)
 
 
 class StockMove(models.Model):
@@ -12,6 +8,7 @@ class StockMove(models.Model):
     repair_invoiceable = fields.Boolean(
         string="Invoiceable",
         default=True,
+        help="Only invoiceable products will be included in the quotation.",
     )
 
     repair_create_sync = fields.Boolean(
@@ -75,29 +72,46 @@ class StockMove(models.Model):
             and m.repair_id.sale_order_id
         )
 
-        _logger.warning("==== REPAIR SYNC MOVES ====")
-
-        for move in moves:
-            _logger.warning(
-                "MOVE %s | product=%s | qty=%s | repair=%s | so=%s",
-                move.id,
-                move.product_id.display_name,
-                move.product_uom_qty,
-                move.repair_id.name,
-                move.repair_id.sale_order_id.name,
-            )
-
         if not moves:
-            _logger.warning("NO MOVES TO SYNC")
             return True
 
-        result = super()._create_repair_sale_order_line()
+        SaleOrderLine = self.env["sale.order.line"]
 
         for move in moves:
-            _logger.warning(
-                "AFTER SYNC move=%s sale_line=%s",
-                move.id,
-                move.sale_line_id.id,
-            )
+            sale = move.repair_id.sale_order_id
 
-        return result
+            line_vals = {
+                "order_id": sale.id,
+                "product_id": move.product_id.id,
+                "name": move.name or move.product_id.display_name,
+                "product_uom_qty": move.product_uom_qty,
+                "product_uom": move.product_uom.id,
+                "price_unit": move.product_id.lst_price,
+            }
+
+            sale_line = SaleOrderLine.create(line_vals)
+
+            move.sale_line_id = sale_line.id
+
+        return True
+
+    def _update_repair_sale_order_line(self):
+        moves = self.filtered("repair_update_sync")
+
+        for move in moves:
+            if move.sale_line_id:
+                if (
+                    not move.repair_invoiceable
+                    or float_is_zero(
+                        move.product_uom_qty,
+                        precision_rounding=move.product_uom.rounding,
+                    )
+                ):
+                    move.sale_line_id.unlink()
+                    move.sale_line_id = False
+                else:
+                    move.sale_line_id.write({
+                        "product_uom_qty": move.product_uom_qty,
+                    })
+
+        return True
