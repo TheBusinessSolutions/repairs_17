@@ -9,9 +9,7 @@ class SaleOrder(models.Model):
     )
 
     def _get_states_for_sync(self):
-        """
-        Allow synchronization also on confirmed Sale Orders.
-        """
+        # allow sync even after confirmation
         return ["draft", "sent", "sale"]
 
     @api.depends(
@@ -21,34 +19,31 @@ class SaleOrder(models.Model):
     def _compute_needs_repair_sync(self):
         for order in self:
             moves = order.repair_order_ids.mapped("move_ids")
-
-            order.needs_repair_sync = any(
+            order.needs_repair_sync = bool(
                 moves.filtered(
-                    lambda m:
-                    m.repair_create_sync
-                    or m.repair_update_sync
+                    lambda m: m.repair_create_sync or m.repair_update_sync
                 )
             )
 
     def action_sync_repair_lines(self):
         for order in self:
+            order.ensure_one()
+
             if order.state not in order._get_states_for_sync():
                 continue
 
-            moves = order.repair_order_ids.mapped("move_ids")
-
-            create_moves = moves.filtered(
-                lambda m: m.repair_create_sync
+            # STRICT: only moves belonging to THIS sale order
+            moves = order.repair_order_ids.mapped("move_ids").filtered(
+                lambda m: m.repair_id.sale_order_id.id == order.id
             )
+
+            create_moves = moves.filtered("repair_create_sync")
+            update_moves = moves.filtered("repair_update_sync")
 
             if create_moves:
                 create_moves.with_context(
                     repair_lines_manual_sync=True
                 )._create_repair_sale_order_line()
-
-            update_moves = moves.filtered(
-                lambda m: m.repair_update_sync
-            )
 
             if update_moves:
                 update_moves.with_context(
